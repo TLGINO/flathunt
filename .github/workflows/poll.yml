@@ -2,7 +2,8 @@ name: Poll listings and publish map
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # GitHub may delay scheduled runs by several minutes
+    # off the busy :00/:15/:30/:45 slots, which GitHub often delays or drops
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
