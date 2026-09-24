@@ -163,6 +163,10 @@
         <label for="f-pending">Commute not yet known</label>
         <select id="f-pending"><option value="show">Show</option><option value="hide">Hide</option></select>
       </div>
+      <div>
+        <label for="f-temporary">Temporary rentals</label>
+        <select id="f-temporary"><option value="show">Show</option><option value="hide">Hide</option></select>
+      </div>
     </form>
     <fieldset class="rooms" id="f-rooms">
       <legend>Rooms</legend>
@@ -264,10 +268,11 @@ function render() {
   const maxRent = +document.getElementById("f-rent").value;
   const rooms = new Set([...document.querySelectorAll(".room-buttons button[aria-pressed=true]")].map(b => +b.dataset.rooms));
   const hidePending = document.getElementById("f-pending").value === "hide";
+  const hideTemporary = document.getElementById("f-temporary").value === "hide";
   const sort = document.getElementById("f-sort").value;
 
   const shown = DATA.listings.filter(x =>
-    x.rent <= maxRent && rooms.has(x.rooms) && (x.commute == null ? !hidePending : x.commute <= maxCommute));
+    x.rent <= maxRent && rooms.has(x.rooms) && !(hideTemporary && x.temporary) && (x.commute == null ? !hidePending : x.commute <= maxCommute));
   const key = {
     commute: x => x.commute ?? 999,
     rent: x => x.rent,
