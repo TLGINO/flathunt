@@ -2,3 +2,4 @@ flats.db
 flathunt.log
 site/listings.json
 site/*.tmp
+__pycache__/
