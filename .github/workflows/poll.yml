@@ -1,0 +1,61 @@
+name: Poll listings and publish map
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # GitHub may delay scheduled runs by several minutes
+  workflow_dispatch:
+
+permissions:
+  contents: write   # push flats.db to the data branch
+  pages: write
+  id-token: write
+
+concurrency:
+  group: poll
+  cancel-in-progress: false
+
+env:
+  TZ: Europe/Zurich
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # The database lives on its own branch as a single commit, overwritten each run,
+      # so the repo history doesn't grow by a few MB every 15 minutes.
+      - name: Restore database
+        run: |
+          if git fetch --depth=1 origin data; then
+            git show origin/data:flats.db > flats.db
+          else
+            echo "No data branch yet, starting with an empty database"
+          fi
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Fetch listings
+        run: uv run flathunt.py
+
+      - name: Save database
+        run: |
+          dir=$(mktemp -d)
+          cp flats.db "$dir/"
+          cd "$dir"
+          git init -q -b data
+          git add flats.db
+          git -c user.name="flathunt" -c user.email="flathunt@users.noreply.github.com" \
+            commit -qm "Database as of $(date '+%Y-%m-%d %H:%M')"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

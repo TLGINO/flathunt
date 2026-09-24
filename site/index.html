@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flat Hunt Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #111111; --muted: #3a3a3a; --panel: #f4f4f4; --line: #767676;
+    --link: #0645ad; --focus: #ffbf47; --focus-ring: #111111;
+    /* commute bands: Okabe-Ito based, each with a text colour that passes WCAG AA */
+    --b1: #00704f; --b1-fg: #ffffff;   /* <= 10 min: green      */
+    --b2: #0072b2; --b2-fg: #ffffff;   /* 11-20 min: blue       */
+    --b3: #f0c419; --b3-fg: #111111;   /* 21-30 min: yellow     */
+    --b4: #d9d9d9; --b4-fg: #111111;   /* pending:   light grey */
+    --office: #c0392b;
+    font-size: 125%; /* 20px base; scaled further by the text-size buttons */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121212; --fg: #f2f2f2; --muted: #cfcfcf; --panel: #1e1e1e; --line: #9a9a9a;
+      --link: #8ab4ff; --focus-ring: #ffffff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121212; --fg: #f2f2f2; --muted: #cfcfcf; --panel: #1e1e1e; --line: #9a9a9a;
+    --link: #8ab4ff; --focus-ring: #ffffff;
+  }
+  :root[data-size="1"] { font-size: 150%; }
+  :root[data-size="2"] { font-size: 180%; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         line-height: 1.5; display: flex; flex-direction: column; }
+  a { color: var(--link); text-underline-offset: 3px; }
+  :focus-visible { outline: 4px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 7px var(--focus-ring); }
+
+  .skip { position: absolute; left: -9999px; top: 0; z-index: 2000; background: var(--focus); color: #111;
+          padding: .5rem 1rem; font-weight: 700; }
+  .skip:focus { left: 1rem; }
+
+  header { padding: .75rem 1rem; border-bottom: 2px solid var(--line); display: flex; flex-wrap: wrap;
+           gap: .5rem 1.5rem; align-items: center; justify-content: space-between; }
+  h1 { margin: 0; font-size: 1.4rem; }
+  .updated { margin: 0; color: var(--muted); }
+  .tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+  button, select { font: inherit; min-height: 2.75rem; padding: .25rem .9rem; border: 2px solid var(--fg);
+                   border-radius: 6px; background: var(--bg); color: var(--fg); cursor: pointer; }
+  button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+  label { font-weight: 600; }
+
+  main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(22rem, 34%); min-height: 0; }
+  #map { min-height: 60vh; }
+  #list-panel { overflow-y: auto; border-left: 2px solid var(--line); background: var(--panel); }
+  @media (max-width: 60rem) {
+    main { grid-template-columns: 1fr; }
+    #map { height: 65vh; }
+    #list-panel { border-left: 0; border-top: 2px solid var(--line); overflow: visible; }
+  }
+
+  .filters { padding: .75rem 1rem; display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: end;
+             border-bottom: 2px solid var(--line); }
+  .filters div { display: flex; flex-direction: column; gap: .2rem; }
+  .legend { padding: .75rem 1rem; margin: 0; list-style: none; display: grid; gap: .35rem;
+            border-bottom: 2px solid var(--line); }
+  .legend li { display: flex; align-items: center; gap: .6rem; }
+  h2 { font-size: 1.15rem; margin: .75rem 1rem .25rem; }
+  #count { margin: 0 1rem .5rem; color: var(--muted); }
+
+  ol#listings { list-style: none; margin: 0; padding: 0 1rem 1rem; display: grid; gap: .6rem; }
+  .card { background: var(--bg); border: 2px solid var(--line); border-radius: 8px; padding: .6rem .8rem;
+          display: grid; grid-template-columns: auto 1fr; gap: .2rem .8rem; align-items: start; }
+  .card .badge { grid-row: span 3; }
+  .card .price { font-weight: 700; font-size: 1.1rem; }
+  .card .addr { color: var(--fg); }
+  .card .meta { color: var(--muted); }
+  .card .actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-top: .2rem; }
+  .card button { min-height: 2.5rem; }
+
+  /* commute badge: used both on the map and in the list */
+  .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 2.6em; height: 2.6em;
+           padding: 0 .35em; border-radius: 1.3em; font-weight: 800; font-size: 1rem; line-height: 1;
+           border: 3px solid #111; box-shadow: 0 0 0 2px #fff; white-space: nowrap; }
+  .band-1 { background: var(--b1); color: var(--b1-fg); }
+  .band-2 { background: var(--b2); color: var(--b2-fg); }
+  .band-3 { background: var(--b3); color: var(--b3-fg); }
+  .band-4 { background: var(--b4); color: var(--b4-fg); border-style: dashed; }
+  .office-badge { background: var(--office); color: #fff; font-size: 1.1rem; height: 2.8em; padding: 0 .8em;
+                  border-radius: 8px; border: 3px solid #111; box-shadow: 0 0 0 3px #fff; font-weight: 800;
+                  display: inline-flex; align-items: center; white-space: nowrap; position: relative; }
+  /* on the map the office label is a pin whose tip marks the exact spot */
+  .office-pin::after { content: ""; position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%);
+                       border: 11px solid transparent; border-top-color: #111; border-bottom: 0; }
+
+  .leaflet-div-icon { background: none; border: 0; }
+  .leaflet-marker-icon:focus-visible .badge { outline: 4px solid var(--focus); outline-offset: 3px; }
+  .leaflet-container { font: inherit; font-size: 1rem; }
+  .leaflet-control-zoom a { width: 3rem !important; height: 3rem !important; line-height: 3rem !important;
+                            font-size: 1.8rem !important; }
+  .leaflet-popup-content { font-size: 1rem; line-height: 1.5; margin: .8rem 1rem; }
+  .leaflet-popup-content b { font-size: 1.15rem; }
+  .leaflet-container a.leaflet-popup-close-button { width: 2.5rem; height: 2.5rem; font-size: 1.8rem; }
+  .leaflet-control-attribution { font-size: .8rem; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<a class="skip" href="#list-panel">Skip to the list of flats</a>
+<header>
+  <div>
+    <h1>Flats near the office</h1>
+    <p class="updated" id="updated" aria-live="polite">Loading…</p>
+  </div>
+  <div class="tools" role="group" aria-label="Display settings">
+    <span>Text size:</span>
+    <button type="button" data-size="0" aria-pressed="true">Large</button>
+    <button type="button" data-size="1" aria-pressed="false">Larger</button>
+    <button type="button" data-size="2" aria-pressed="false">Largest</button>
+    <button type="button" id="theme" aria-pressed="false">Dark mode</button>
+  </div>
+</header>
+<main>
+  <div id="map" role="region" aria-label="Map of flats. Each marker shows the commute in minutes."></div>
+  <section id="list-panel" aria-labelledby="list-heading" tabindex="-1">
+    <form class="filters" id="filters" onsubmit="return false">
+      <div>
+        <label for="f-commute">Max commute</label>
+        <select id="f-commute">
+          <option value="10">10 min</option><option value="20">20 min</option>
+          <option value="30" selected>30 min</option>
+        </select>
+      </div>
+      <div>
+        <label for="f-rent">Max rent</label>
+        <select id="f-rent">
+          <option value="1500">CHF 1,500</option><option value="2000">CHF 2,000</option>
+          <option value="2500" selected>CHF 2,500</option>
+        </select>
+      </div>
+      <div>
+        <label for="f-sort">Sort by</label>
+        <select id="f-sort">
+          <option value="commute">Shortest commute</option><option value="rent">Lowest rent</option>
+          <option value="new">Newest first</option>
+        </select>
+      </div>
+      <div>
+        <label for="f-pending">Commute not yet known</label>
+        <select id="f-pending"><option value="show">Show</option><option value="hide">Hide</option></select>
+      </div>
+    </form>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="office-badge" aria-hidden="true">OFFICE</span> Your office</li>
+      <li><span class="badge band-1" aria-hidden="true">8</span> 10 minutes or less</li>
+      <li><span class="badge band-2" aria-hidden="true">15</span> 11 to 20 minutes</li>
+      <li><span class="badge band-3" aria-hidden="true">25</span> 21 to 30 minutes</li>
+      <li><span class="badge band-4" aria-hidden="true">?</span> Commute not yet known</li>
+    </ul>
+    <h2 id="list-heading">Flats</h2>
+    <p id="count" aria-live="polite"></p>
+    <ol id="listings"></ol>
+  </section>
+</main>
+<script>
+const root = document.documentElement;
+let map = null;
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
+
+// --- display settings ---------------------------------------------------------
+const sizeButtons = document.querySelectorAll("button[data-size]");
+function setSize(n) {
+  root.dataset.size = n;
+  sizeButtons.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.size === n)));
+  store.set("size", n);
+  if (map) map.invalidateSize();
+}
+sizeButtons.forEach(b => b.onclick = () => setSize(b.dataset.size));
+setSize(store.get("size") || "0");
+
+const themeBtn = document.getElementById("theme");
+function isDark() {
+  return root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+}
+function setTheme(t) {
+  if (t) { root.dataset.theme = t; store.set("theme", t); }
+  themeBtn.setAttribute("aria-pressed", String(isDark()));
+}
+themeBtn.onclick = () => setTheme(isDark() ? "light" : "dark");
+setTheme(store.get("theme"));
+
+// --- map ----------------------------------------------------------------------
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const band = x => x.commute == null ? 4 : x.commute <= 10 ? 1 : x.commute <= 20 ? 2 : 3;
+const chf = n => "CHF " + Math.round(n).toLocaleString("en-CH").replace(/,/g, "’");
+const describe = x => {
+  const parts = [x.commute == null ? "commute not yet known" : `${x.commute} minute commute`,
+                 `${chf(x.rent)} per month`, `${x.rooms} rooms`];
+  if (x.surface) parts.push(`${x.surface} square metres`);
+  parts.push(x.address || "address not given");
+  return parts.join(", ");
+};
+
+function popupContent(x) {
+  const el = document.createElement("div");
+  const line = (tag, text) => { const e = document.createElement(tag); e.textContent = text; el.append(e, document.createElement("br")); };
+  line("b", `${chf(x.rent)} · ${x.rooms} rooms` + (x.surface ? ` · ${x.surface} m²` : ""));
+  line("span", x.address || "Address not given");
+  line("span", x.commute == null ? "Commute: not yet known" :
+    `Commute: ${x.commute} min (walk about ${x.walk}` + (x.transit != null ? `, public transport ${x.transit}` : "") + ")");
+  line("span", `Listed ${x.first_seen.slice(0, 10)}` + (x.temporary ? " · temporary" : ""));
+  const a = document.createElement("a");
+  a.href = x.url; a.target = "_blank"; a.rel = "noopener";
+  a.textContent = `Open listing on ${x.source}`;
+  el.append(a);
+  return el;
+}
+
+map = L.map("map", {keyboard: true});
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  {maxZoom: 19, attribution: "&copy; OpenStreetMap contributors"}).addTo(map);
+const markerLayer = L.layerGroup().addTo(map);
+let DATA = null;
+
+function render() {
+  const maxCommute = +document.getElementById("f-commute").value;
+  const maxRent = +document.getElementById("f-rent").value;
+  const hidePending = document.getElementById("f-pending").value === "hide";
+  const sort = document.getElementById("f-sort").value;
+
+  const shown = DATA.listings.filter(x =>
+    x.rent <= maxRent && (x.commute == null ? !hidePending : x.commute <= maxCommute));
+  const key = {
+    commute: x => x.commute ?? 999,
+    rent: x => x.rent,
+    new: x => -Date.parse(x.first_seen),
+  }[sort];
+  shown.sort((a, b) => key(a) - key(b) || a.rent - b.rent);
+
+  markerLayer.clearLayers();
+  const list = document.getElementById("listings");
+  list.replaceChildren();
+  for (const x of shown) {
+    const b = band(x), label = x.commute == null ? "?" : String(x.commute);
+    const marker = L.marker([x.lat, x.lon], {
+      icon: L.divIcon({html: `<span class="badge band-${b}">${label}</span>`, className: "",
+                       iconSize: [44, 44], iconAnchor: [22, 22]}),
+      title: describe(x), alt: describe(x), riseOnHover: true,
+      // where dots overlap, shorter commutes sit on top
+      zIndexOffset: x.commute == null ? -5000 : (60 - x.commute) * 100,
+    }).bindPopup(popupContent(x), {maxWidth: 360}).addTo(markerLayer);
+
+    const li = document.createElement("li");
+    li.className = "card";
+    const badge = document.createElement("span");
+    badge.className = `badge band-${b}`;
+    badge.setAttribute("aria-hidden", "true");
+    badge.textContent = label;
+    const price = document.createElement("div");
+    price.className = "price";
+    price.textContent = `${chf(x.rent)} · ${x.rooms} rooms` + (x.surface ? ` · ${x.surface} m²` : "");
+    const addr = document.createElement("div");
+    addr.className = "addr";
+    addr.textContent = x.address || "Address not given";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = (x.commute == null ? "Commute not yet known" : `${x.commute} min commute`) +
+      ` · listed ${x.first_seen.slice(0, 10)}` + (x.temporary ? " · temporary" : "");
+    const sr = document.createElement("span");
+    sr.className = "sr-only";
+    sr.textContent = describe(x);
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const show = document.createElement("button");
+    show.type = "button";
+    show.textContent = "Show on map";
+    show.setAttribute("aria-label", `Show on map: ${x.address || chf(x.rent)}`);
+    show.onclick = () => {
+      if (reduceMotion) map.setView([x.lat, x.lon], 16); else map.flyTo([x.lat, x.lon], 16, {duration: .6});
+      marker.openPopup();
+      document.getElementById("map").scrollIntoView({behavior: reduceMotion ? "auto" : "smooth", block: "nearest"});
+    };
+    const link = document.createElement("a");
+    link.href = x.url; link.target = "_blank"; link.rel = "noopener";
+    link.textContent = `Open on ${x.source}`;
+    link.setAttribute("aria-label", `Open listing on ${x.source}: ${x.address || chf(x.rent)} (new tab)`);
+    actions.append(show, link);
+    li.append(badge, price, addr, meta, actions);
+    li.prepend(sr);
+    [price, addr, meta].forEach(e => e.setAttribute("aria-hidden", "true"));
+    list.append(li);
+  }
+  document.getElementById("count").textContent =
+    `${shown.length} flat${shown.length === 1 ? "" : "s"} shown`;
+}
+
+fetch("listings.json", {cache: "no-store"}).then(r => r.json()).then(data => {
+  DATA = data;
+  const o = data.office;
+  map.setView([o.lat, o.lon], 13);
+  L.marker([o.lat, o.lon], {
+    icon: L.divIcon({html: `<span class="office-badge office-pin">OFFICE</span>`, className: "",
+                     iconSize: [110, 56], iconAnchor: [55, 70]}),
+    title: `Your office: ${o.name}`, alt: `Your office: ${o.name}`, zIndexOffset: 10000,
+  }).bindPopup(`<b>Office</b><br>${o.name}`).addTo(map);
+  document.getElementById("updated").textContent = `Last checked for new flats: ${data.updated}`;
+  document.querySelectorAll("#filters select").forEach(s => {
+    const saved = store.get("f-" + s.id);
+    if (saved && [...s.options].some(o => o.value === saved)) s.value = saved;
+    s.onchange = () => { store.set("f-" + s.id, s.value); render(); };
+  });
+  render();
+}).catch(err => {
+  document.getElementById("updated").textContent = "Could not load the flat list. Please reload the page.";
+  console.error(err);
+});
+</script>
+</body>
+</html>
