@@ -63,7 +63,8 @@
 
   .filters { padding: .75rem 1rem; display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: end;
              border-bottom: 2px solid var(--line); }
-  .filters div { display: flex; flex-direction: column; gap: .2rem; }
+  .filters div { display: flex; flex-direction: column; gap: .2rem; min-width: 0; max-width: 100%; }
+  .filters select { max-width: 100%; }
   .rooms { margin: 0; padding: .5rem 1rem .75rem; border: 0; border-bottom: 2px solid var(--line); }
   .rooms legend { font-weight: 600; padding: .5rem 0 .2rem; float: left; width: 100%; }
   .room-buttons { clear: both; display: flex; flex-wrap: wrap; gap: .4rem; }
@@ -128,9 +129,18 @@
   </div>
 </header>
 <main>
-  <div id="map" role="region" aria-label="Map of flats. Each marker shows the commute in minutes."></div>
+  <div id="map" role="region" aria-label="Map of flats. Each marker shows the travel time in minutes for the selected travel mode."></div>
   <section id="list-panel" aria-labelledby="list-heading" tabindex="-1">
     <form class="filters" id="filters" onsubmit="return false">
+      <div>
+        <label for="f-mode">Travel by</label>
+        <select id="f-mode">
+          <option value="fastest">Fastest: walk or transport</option>
+          <option value="walk">Walking</option>
+          <option value="bike">Bike</option>
+          <option value="transit">Public transport</option>
+        </select>
+      </div>
       <div>
         <label for="f-commute">Max commute</label>
         <select id="f-commute">
@@ -204,8 +214,21 @@ setTheme(store.get("theme"));
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const band = x => x.commute == null ? 4 : x.commute <= 10 ? 1 : x.commute <= 20 ? 2 : 3;
 const chf = n => "CHF " + Math.round(n).toLocaleString("en-CH").replace(/,/g, "’");
+const MODE_NAMES = {fastest: "walking or public transport", walk: "walking", bike: "bike", transit: "public transport"};
+let MODE = "fastest";
+function commuteFor(x, mode, max) {
+  if (mode !== "fastest") return x[mode];
+  const known = [x.walk, x.transit].filter(v => v != null);
+  if (!known.length) return null;
+  const best = Math.min(...known);
+  // with transit unknown, walking is only an upper bound: fine if short enough, otherwise wait
+  return x.transit == null && best > max ? null : best;
+}
+const mins = v => v == null ? "not known yet" : `${v} min`;
+const allTimes = x => `Walk ${mins(x.walk)} · Bike ${mins(x.bike)} · Public transport ${mins(x.transit)}` +
+  (x.via && x.transit != null ? ` (from ${x.via})` : "");
 const describe = x => {
-  const parts = [x.commute == null ? "commute not yet known" : `${x.commute} minute commute`,
+  const parts = [x.commute == null ? "travel time not yet known" : `${x.commute} minutes by ${MODE_NAMES[MODE]}`,
                  `${chf(x.rent)} per month`, `${x.rooms} rooms`];
   if (x.surface) parts.push(`${x.surface} square metres`);
   parts.push(x.address || "address not given");
@@ -217,8 +240,9 @@ function popupContent(x) {
   const line = (tag, text) => { const e = document.createElement(tag); e.textContent = text; el.append(e, document.createElement("br")); };
   line("b", `${chf(x.rent)} · ${x.rooms} rooms` + (x.surface ? ` · ${x.surface} m²` : ""));
   line("span", x.address || "Address not given");
-  line("span", x.commute == null ? "Commute: not yet known" :
-    `Commute: ${x.commute} min (walk about ${x.walk}` + (x.transit != null ? `, public transport ${x.transit}` : "") + ")");
+  line("span", `Walk: ${mins(x.walk)}`);
+  line("span", `Bike: ${mins(x.bike)}`);
+  line("span", `Public transport: ${mins(x.transit)}` + (x.via && x.transit != null ? ` from ${x.via}` : ""));
   line("span", `Listed ${x.first_seen.slice(0, 10)}` + (x.temporary ? " · temporary" : ""));
   const a = document.createElement("a");
   a.href = x.url; a.target = "_blank"; a.rel = "noopener";
@@ -235,6 +259,8 @@ let DATA = null;
 
 function render() {
   const maxCommute = +document.getElementById("f-commute").value;
+  MODE = document.getElementById("f-mode").value;
+  for (const x of DATA.listings) x.commute = commuteFor(x, MODE, maxCommute);
   const maxRent = +document.getElementById("f-rent").value;
   const rooms = new Set([...document.querySelectorAll(".room-buttons button[aria-pressed=true]")].map(b => +b.dataset.rooms));
   const hidePending = document.getElementById("f-pending").value === "hide";
@@ -276,7 +302,7 @@ function render() {
     addr.textContent = x.address || "Address not given";
     const meta = document.createElement("div");
     meta.className = "meta";
-    meta.textContent = (x.commute == null ? "Commute not yet known" : `${x.commute} min commute`) +
+    meta.textContent = allTimes(x) +
       ` · listed ${x.first_seen.slice(0, 10)}` + (x.temporary ? " · temporary" : "");
     const sr = document.createElement("span");
     sr.className = "sr-only";
