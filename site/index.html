@@ -64,6 +64,11 @@
   .filters { padding: .75rem 1rem; display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: end;
              border-bottom: 2px solid var(--line); }
   .filters div { display: flex; flex-direction: column; gap: .2rem; }
+  .rooms { margin: 0; padding: .5rem 1rem .75rem; border: 0; border-bottom: 2px solid var(--line); }
+  .rooms legend { font-weight: 600; padding: .5rem 0 .2rem; float: left; width: 100%; }
+  .room-buttons { clear: both; display: flex; flex-wrap: wrap; gap: .4rem; }
+  .room-buttons button { min-width: 3.2rem; font-weight: 700; }
+  .room-buttons button[aria-pressed="true"]::before { content: "\2713\00a0"; }
   .legend { padding: .75rem 1rem; margin: 0; list-style: none; display: grid; gap: .35rem;
             border-bottom: 2px solid var(--line); }
   .legend li { display: flex; align-items: center; gap: .6rem; }
@@ -135,10 +140,7 @@
       </div>
       <div>
         <label for="f-rent">Max rent</label>
-        <select id="f-rent">
-          <option value="1500">CHF 1,500</option><option value="2000">CHF 2,000</option>
-          <option value="2500" selected>CHF 2,500</option>
-        </select>
+        <select id="f-rent"></select>
       </div>
       <div>
         <label for="f-sort">Sort by</label>
@@ -152,6 +154,10 @@
         <select id="f-pending"><option value="show">Show</option><option value="hide">Hide</option></select>
       </div>
     </form>
+    <fieldset class="rooms" id="f-rooms">
+      <legend>Rooms</legend>
+      <div class="room-buttons"></div>
+    </fieldset>
     <ul class="legend" aria-label="Legend">
       <li><span class="office-badge" aria-hidden="true">OFFICE</span> Your office</li>
       <li><span class="badge band-1" aria-hidden="true">8</span> 10 minutes or less</li>
@@ -230,11 +236,12 @@ let DATA = null;
 function render() {
   const maxCommute = +document.getElementById("f-commute").value;
   const maxRent = +document.getElementById("f-rent").value;
+  const rooms = new Set([...document.querySelectorAll(".room-buttons button[aria-pressed=true]")].map(b => +b.dataset.rooms));
   const hidePending = document.getElementById("f-pending").value === "hide";
   const sort = document.getElementById("f-sort").value;
 
   const shown = DATA.listings.filter(x =>
-    x.rent <= maxRent && (x.commute == null ? !hidePending : x.commute <= maxCommute));
+    x.rent <= maxRent && rooms.has(x.rooms) && (x.commute == null ? !hidePending : x.commute <= maxCommute));
   const key = {
     commute: x => x.commute ?? 999,
     rent: x => x.rent,
@@ -297,6 +304,30 @@ function render() {
   }
   document.getElementById("count").textContent =
     `${shown.length} flat${shown.length === 1 ? "" : "s"} shown`;
+}
+
+// --- filter controls ------------------------------------------------------------
+const rentSelect = document.getElementById("f-rent");
+for (let v = 1000; v <= 2500; v += 100) rentSelect.add(new Option(chf(v), v, false, v === 2500));
+
+const ROOM_OPTIONS = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5];
+const roomBox = document.querySelector(".room-buttons");
+let savedRooms = null;
+try { savedRooms = JSON.parse(store.get("f-rooms")); } catch {}
+if (!Array.isArray(savedRooms)) savedRooms = [2, 2.5];
+for (const r of ROOM_OPTIONS) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.dataset.rooms = r;
+  b.textContent = String(r);
+  b.setAttribute("aria-label", `${r} rooms`);
+  b.setAttribute("aria-pressed", String(savedRooms.includes(r)));
+  b.onclick = () => {
+    b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true"));
+    store.set("f-rooms", JSON.stringify([...roomBox.querySelectorAll("[aria-pressed=true]")].map(x => +x.dataset.rooms)));
+    if (DATA) render();
+  };
+  roomBox.append(b);
 }
 
 fetch("listings.json", {cache: "no-store"}).then(r => r.json()).then(data => {

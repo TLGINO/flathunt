@@ -25,7 +25,7 @@ from pathlib import Path
 
 OFFICE = "Elias-Canetti-Strasse 2, 8050 Zürich"
 OFFICE_LAT, OFFICE_LON = 47.41232, 8.54164
-MIN_ROOMS, MAX_ROOMS = 2.0, 2.5
+MIN_ROOMS, MAX_ROOMS = 1.0, 4.5  # the map filters further; 2-2.5 is the default there
 MAX_RENT = 2500  # CHF/month incl. utilities
 MAX_DISTANCE_KM = 20  # straight-line prefilter before asking for a commute time
 ARRIVE_BY = "08:30"

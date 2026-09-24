@@ -1,6 +1,6 @@
 # flathunt
 
-Finds 2–2.5 room flats (≤ CHF 2,500 incl. utilities) within 30 minutes by foot or public
+Finds 1–4.5 room flats (≤ CHF 2,500 incl. utilities; the map defaults to 2–2.5 rooms) within 30 minutes by foot or public
 transport of Elias-Canetti-Strasse 2, 8050 Zürich, logs them to SQLite, and shows them on a map.
 
 Sources: Flatfox. Homegate and ImmoScout24 block automated requests (Cloudflare / DataDome)
