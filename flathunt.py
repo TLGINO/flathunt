@@ -417,7 +417,7 @@ def write_listings_json(db):
     con = sqlite3.connect(db)
     con.row_factory = sqlite3.Row
     rows = con.execute(
-        "SELECT source, url, address, lat, lon, rooms, rent, surface, is_temporary, first_seen, walk_min, "
+        "SELECT source, url, address, lat, lon, rooms, rent, surface, is_temporary, first_seen, published, walk_min, "
         "walk_routed, bike_min, transit_min, transit_src, transit_via FROM listings "
         "WHERE gone_at IS NULL AND distance_km <= ?", (MAX_DISTANCE_KM,)
     ).fetchall()
@@ -427,6 +427,7 @@ def write_listings_json(db):
         dict(source=r["source"], url=r["url"], address=r["address"], lat=r["lat"], lon=r["lon"],
              rooms=r["rooms"], rent=r["rent"], surface=r["surface"], temporary=bool(r["is_temporary"]),
              first_seen=r["first_seen"],
+             listed=r["published"] or r["first_seen"],  # when the portal published it, if known
              # None means "not known yet"; the page shows those as pending
              walk=r["walk_min"] if r["walk_routed"] else None,
              bike=r["bike_min"],

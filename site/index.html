@@ -153,15 +153,19 @@
         <select id="f-rent"></select>
       </div>
       <div>
-        <label for="f-sort">Sort by</label>
-        <select id="f-sort">
-          <option value="commute">Shortest commute</option><option value="rent">Lowest rent</option>
-          <option value="new">Newest first</option>
+        <label for="f-listed">Listed within</label>
+        <select id="f-listed">
+          <option value="0">Any time</option><option value="1">Last 24 hours</option>
+          <option value="3">Last 3 days</option><option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
         </select>
       </div>
       <div>
-        <label for="f-pending">Commute not yet known</label>
-        <select id="f-pending"><option value="show">Show</option><option value="hide">Hide</option></select>
+        <label for="f-sort">Sort by</label>
+        <select id="f-sort">
+          <option value="commute">Shortest commute</option><option value="rent">Lowest rent</option>
+          <option value="new">Newest listing first</option>
+        </select>
       </div>
       <div>
         <label for="f-temporary">Temporary rentals</label>
@@ -177,7 +181,7 @@
       <li><span class="badge band-1" aria-hidden="true">8</span> 10 minutes or less</li>
       <li><span class="badge band-2" aria-hidden="true">15</span> 11 to 20 minutes</li>
       <li><span class="badge band-3" aria-hidden="true">25</span> 21 to 30 minutes</li>
-      <li><span class="badge band-4" aria-hidden="true">?</span> Commute not yet known</li>
+      <li><span class="badge band-4" aria-hidden="true">?</span> Travel time not known yet</li>
     </ul>
     <h2 id="list-heading">Flats</h2>
     <p id="count" aria-live="polite"></p>
@@ -228,6 +232,13 @@ function commuteFor(x, mode, max) {
   // with transit unknown, walking is only an upper bound: fine if short enough, otherwise wait
   return x.transit == null && best > max ? null : best;
 }
+const listedAt = x => Date.parse(x.listed || x.first_seen);
+function listedText(x) {
+  const t = listedAt(x), hours = (Date.now() - t) / 36e5;
+  const when = new Date(t).toLocaleString("en-GB", {day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"});
+  const ago = hours < 1 ? "under an hour ago" : hours < 48 ? `${Math.round(hours)} hours ago` : `${Math.round(hours / 24)} days ago`;
+  return `Listed ${when} (${ago})`;
+}
 const mins = v => v == null ? "not known yet" : `${v} min`;
 const allTimes = x => `Walk ${mins(x.walk)} · Bike ${mins(x.bike)} · Public transport ${mins(x.transit)}` +
   (x.via && x.transit != null ? ` (from ${x.via})` : "");
@@ -247,7 +258,7 @@ function popupContent(x) {
   line("span", `Walk: ${mins(x.walk)}`);
   line("span", `Bike: ${mins(x.bike)}`);
   line("span", `Public transport: ${mins(x.transit)}` + (x.via && x.transit != null ? ` from ${x.via}` : ""));
-  line("span", `Listed ${x.first_seen.slice(0, 10)}` + (x.temporary ? " · temporary" : ""));
+  line("span", listedText(x) + (x.temporary ? " · temporary" : ""));
   const a = document.createElement("a");
   a.href = x.url; a.target = "_blank"; a.rel = "noopener";
   a.textContent = `Open listing on ${x.source}`;
@@ -267,16 +278,17 @@ function render() {
   for (const x of DATA.listings) x.commute = commuteFor(x, MODE, maxCommute);
   const maxRent = +document.getElementById("f-rent").value;
   const rooms = new Set([...document.querySelectorAll(".room-buttons button[aria-pressed=true]")].map(b => +b.dataset.rooms));
-  const hidePending = document.getElementById("f-pending").value === "hide";
   const hideTemporary = document.getElementById("f-temporary").value === "hide";
   const sort = document.getElementById("f-sort").value;
+  const listedDays = +document.getElementById("f-listed").value;
+  const listedSince = listedDays ? Date.now() - listedDays * 864e5 : -Infinity;
 
   const shown = DATA.listings.filter(x =>
-    x.rent <= maxRent && rooms.has(x.rooms) && !(hideTemporary && x.temporary) && (x.commute == null ? !hidePending : x.commute <= maxCommute));
+    x.rent <= maxRent && rooms.has(x.rooms) && listedAt(x) >= listedSince && !(hideTemporary && x.temporary) && (x.commute == null || x.commute <= maxCommute));
   const key = {
     commute: x => x.commute ?? 999,
     rent: x => x.rent,
-    new: x => -Date.parse(x.first_seen),
+    new: x => -listedAt(x),
   }[sort];
   shown.sort((a, b) => key(a) - key(b) || a.rent - b.rent);
 
@@ -308,7 +320,7 @@ function render() {
     const meta = document.createElement("div");
     meta.className = "meta";
     meta.textContent = allTimes(x) +
-      ` · listed ${x.first_seen.slice(0, 10)}` + (x.temporary ? " · temporary" : "");
+      ` · ${listedText(x).toLowerCase()}` + (x.temporary ? " · temporary" : "");
     const sr = document.createElement("span");
     sr.className = "sr-only";
     sr.textContent = describe(x);
